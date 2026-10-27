@@ -27,7 +27,7 @@ uses the network works over it, `ext-web` included.
 | --- | --- |
 | `php-baremetal/wifi-hal` (virtual) | The radio driver lifecycle: init, scan, station, access point. On ESP32 it is `php-baremetal/esp32-wifi-hal` (platform `esp32`, over `esp_wifi`, `esp_netif`, `esp_event`, `nvs_flash`), which also brings `php-baremetal/esp32-executor`. |
 
-You never require the HAL yourself. Conductor reads the platform from `extra.baremetal.sdk` (`esp32@^1.0` gives
+You never require the HAL yourself. Conductor reads the platform from `extra.baremetal.sdk` (`esp32@^2.0` gives
 `esp32`) and adds `php-baremetal/esp32-wifi-hal` while Composer resolves. The PHP module is `wifi`. ext-wifi
 does not need ext-events and works in every runtime.
 
@@ -85,7 +85,7 @@ is baked into the firmware and kept out of the sources and of git:
   },
   "extra": {
     "baremetal": {
-      "sdk": "esp32@^1.0",
+      "sdk": "esp32@^2.0",
       "board": "waveshare-esp32-s3-zero-n8r8",
       "runtime": "init-loop",
       "storage": "embedded",

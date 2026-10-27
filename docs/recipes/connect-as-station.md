@@ -34,7 +34,7 @@ A Waveshare ESP32-S3-Zero (N8R8) in the `init-loop` runtime. The SSID and passwo
   },
   "extra": {
     "baremetal": {
-      "sdk": "esp32@^1.0",
+      "sdk": "esp32@^2.0",
       "board": "waveshare-esp32-s3-zero-n8r8",
       "runtime": "init-loop",
       "storage": "embedded",
