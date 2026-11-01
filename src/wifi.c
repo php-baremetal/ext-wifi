@@ -21,14 +21,14 @@
  *
  * PHP API:
  *   wifi_scan(): array                                   -- [{ssid,bssid,rssi,channel,auth}, ...]
- *   wifi_connect(string $ssid, ?string $password=null, int $timeout_ms=15000): bool
+ *   wifi_connect(string $ssid, ?string $password=null, int $timeout_ms=30000): bool
  *   wifi_disconnect(): bool
  *   wifi_connected(): bool
  *   wifi_ip(): ?string       wifi_rssi(): ?int
  *   wifi_ap_start(string $ssid, ?string $password=null, int $channel=1, int $max_conn=4): bool
  *   wifi_ap_stop(): bool
  *   wifi_ap_ip(): ?string    wifi_ap_clients(): int
- *   wifi_available(): bool
+ *   wifi_available(): bool   -- whether the radio comes up
  */
 #include "php.h"
 #include "php_wifi.h"
@@ -36,6 +36,31 @@
 #include <string.h>
 
 #define WIFI_SCAN_MAX 48   /* cap on APs returned by one scan */
+#define WIFI_SSID_MAX 32   /* 802.11 */
+#define WIFI_PASS_MAX 64   /* a WPA2 passphrase is 8 to 63 characters, a raw PSK 64 hex digits */
+
+/* An SSID of 1 to 32 bytes and a password of at most 64, neither with a NUL byte (the HAL would cut
+ * there, and a password starting with NUL would open the network); false (with a ValueError) otherwise. */
+static bool wifi_check_credentials(const char *ssid, size_t ssid_len, const char *pw, size_t pw_len)
+{
+    if (ssid_len < 1 || ssid_len > WIFI_SSID_MAX) {
+        zend_argument_value_error(1, "must be 1 to 32 bytes long");
+        return false;
+    }
+    if (memchr(ssid, '\0', ssid_len)) {
+        zend_argument_value_error(1, "must not contain any null bytes");
+        return false;
+    }
+    if (pw != NULL && pw_len > WIFI_PASS_MAX) {
+        zend_argument_value_error(2, "must be at most 64 bytes long");
+        return false;
+    }
+    if (pw != NULL && memchr(pw, '\0', pw_len)) {
+        zend_argument_value_error(2, "must not contain any null bytes");
+        return false;
+    }
+    return true;
+}
 
 /* No-argument functions, one arginfo per return type. */
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_wifi_bool, 0, 0, _IS_BOOL, 0)
@@ -56,21 +81,22 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_wifi_connect, 0, 1, _IS_BOOL, 0)
     ZEND_ARG_TYPE_INFO(0, ssid, IS_STRING, 0)
-    ZEND_ARG_TYPE_INFO(0, password, IS_STRING, 1)
-    ZEND_ARG_TYPE_INFO(0, timeout_ms, IS_LONG, 0)
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, password, IS_STRING, 1, "null")
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, timeout_ms, IS_LONG, 0, "30000")
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_wifi_ap_start, 0, 1, _IS_BOOL, 0)
     ZEND_ARG_TYPE_INFO(0, ssid, IS_STRING, 0)
-    ZEND_ARG_TYPE_INFO(0, password, IS_STRING, 1)
-    ZEND_ARG_TYPE_INFO(0, channel, IS_LONG, 0)
-    ZEND_ARG_TYPE_INFO(0, max_conn, IS_LONG, 0)
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, password, IS_STRING, 1, "null")
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, channel, IS_LONG, 0, "1")
+    ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, max_conn, IS_LONG, 0, "4")
 ZEND_END_ARG_INFO()
 
+/* Whether the radio comes up: false when it cannot (a Wi-Fi companion chip that did not start, for example). */
 PHP_FUNCTION(wifi_available)
 {
     ZEND_PARSE_PARAMETERS_NONE();
-    RETURN_BOOL(1);
+    RETURN_BOOL(bm_wifi_hal_init() == 0);
 }
 
 PHP_FUNCTION(wifi_scan)
@@ -107,7 +133,7 @@ PHP_FUNCTION(wifi_connect)
 {
     char *ssid = NULL, *pw = NULL;
     size_t ssid_len = 0, pw_len = 0;
-    zend_long timeout = 15000;
+    zend_long timeout = 30000;
 
     ZEND_PARSE_PARAMETERS_START(1, 3)
         Z_PARAM_STRING(ssid, ssid_len)
@@ -116,11 +142,14 @@ PHP_FUNCTION(wifi_connect)
         Z_PARAM_LONG(timeout)
     ZEND_PARSE_PARAMETERS_END();
 
+    if (!wifi_check_credentials(ssid, ssid_len, pw, pw_len)) {
+        RETURN_THROWS();
+    }
     if (bm_wifi_hal_init() != 0) {
         RETURN_FALSE;
     }
     if (timeout <= 0) {
-        timeout = 15000;
+        timeout = 30000;
     }
     RETURN_BOOL(bm_wifi_hal_sta_connect(ssid, pw, (int) timeout));
 }
@@ -173,6 +202,9 @@ PHP_FUNCTION(wifi_ap_start)
         Z_PARAM_LONG(max_conn)
     ZEND_PARSE_PARAMETERS_END();
 
+    if (!wifi_check_credentials(ssid, ssid_len, pw, pw_len)) {
+        RETURN_THROWS();
+    }
     if (bm_wifi_hal_init() != 0) {
         RETURN_FALSE;
     }

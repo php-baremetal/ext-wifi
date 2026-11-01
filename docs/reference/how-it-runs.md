@@ -41,7 +41,7 @@ The other functions return within milliseconds.
 
 ## First use
 
-The first Wi-Fi call (any of scan, connect, access point) initialises, on the executor:
+The first Wi-Fi call (any of `wifi_available()`, scan, connect, access point) initialises, on the executor:
 
 <!-- @steps -->
 - **The nvs partition**
@@ -51,7 +51,9 @@ The first Wi-Fi call (any of scan, connect, access point) initialises, on the ex
 
 - **The Wi-Fi driver**
 
-  `esp_wifi_init()` with the ESP-IDF defaults, and the event handlers for scan, disconnect and got-IP.
+  `esp_wifi_init()` with the ESP-IDF defaults, and the event handlers for scan, disconnect and got-IP. The
+  driver keeps its configuration in RAM only (`WIFI_STORAGE_RAM`): SSIDs and passwords are never written to
+  the `nvs` partition.
 
 - **The interface, on demand**
 
@@ -73,9 +75,10 @@ The SDK has no setting for Wi-Fi credentials, and the HAL keeps none: the SSID a
 | The persistent store | `ext-store`: `store_get('wifi.ssid')`. See [Access point fallback](../recipes/access-point-fallback.md). |
 | A setup page | `ext-web` on an access point collects them, then `ext-store` keeps them. |
 
-The ESP-IDF Wi-Fi driver, with its default configuration (`CONFIG_ESP_WIFI_NVS_ENABLED`), also records the last station and access point
-settings in its own namespace of the `nvs` partition. ext-wifi never reads them back and never connects at
-boot.
+The ESP-IDF Wi-Fi driver keeps its station and access point settings in RAM only (esp32-wifi-hal 1.0.2 and
+later): SSIDs and passwords are never written to flash. Earlier versions let the driver record them, in
+clear, in its own namespace of the `nvs` partition; those entries stay until the partition is erased.
+ext-wifi never connects at boot.
 
 ## Power-save
 
@@ -89,8 +92,9 @@ verified on hardware.
 | --- | --- | --- |
 | Networks returned by one scan | 48 | ext-wifi |
 | Scan timeout | 15 s | esp32-wifi-hal |
-| Default connect timeout | 15000 ms | ext-wifi |
-| Retries of a dropped association | 10 per `wifi_connect()` | esp32-wifi-hal |
-| SSID length used | 31 bytes | esp32-wifi-hal |
+| Default connect timeout | 30000 ms | ext-wifi |
+| Retries of a dropped association | 10 in a row, about 2.5 s apart, refilled at every address the station gets; none after `wifi_disconnect()` or a connect timeout | esp32-wifi-hal |
+| SSID | 1 to 32 bytes, with no NUL byte, else `\ValueError` | ext-wifi |
+| Password | at most 64 bytes, with no NUL byte, else `\ValueError`; 8 to 63 characters, or exactly 64 hex digits | ext-wifi |
 | Access point password | 8 characters minimum, else the network is open | esp32-wifi-hal |
 | Wait for the executor queue | 1000 ms | esp32-wifi-hal |

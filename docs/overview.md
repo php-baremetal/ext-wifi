@@ -134,14 +134,14 @@ function loop(int $tick): void
 | Function | Returns | Meaning |
 | --- | --- | --- |
 | `wifi_scan()` | `array` or `false` | Networks in range: `ssid`, `bssid`, `rssi`, `channel`, `auth`. |
-| `wifi_connect(string $ssid, ?string $password = null, int $timeout_ms = 15000)` | `bool` | Join a network and wait for an IP address. |
+| `wifi_connect(string $ssid, ?string $password = null, int $timeout_ms = 30000)` | `bool` | Join a network and wait for an IP address. |
 | `wifi_disconnect()` | `bool` | Leave the network. |
 | `wifi_connected()` | `bool` | Whether the station has an IP address. |
 | `wifi_ip()`, `wifi_rssi()` | `?string`, `?int` | Station address and signal, `null` when not connected. |
 | `wifi_ap_start(string $ssid, ?string $password = null, int $channel = 1, int $max_conn = 4)` | `bool` | Open the board's own network. |
 | `wifi_ap_stop()` | `bool` | Close it. |
 | `wifi_ap_ip()`, `wifi_ap_clients()` | `?string`, `int` | Access point address and number of joined stations. |
-| `wifi_available()` | `bool` | Always `true` when the extension is built. |
+| `wifi_available()` | `bool` | Whether the radio comes up. |
 
 No function throws for a Wi-Fi failure: each reports it in its return value.
 

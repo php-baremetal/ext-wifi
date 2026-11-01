@@ -31,17 +31,17 @@ seconds.
 
 ## wifi_connect()
 
-<!-- @method name="wifi_connect(string $ssid, ?string $password = null, int $timeout_ms = 15000): bool" returns="bool" -->
+<!-- @method name="wifi_connect(string $ssid, ?string $password = null, int $timeout_ms = 30000): bool" returns="bool" -->
 
 <!-- @params -->
 <!-- @param name="$ssid" type="string" required -->
-Network name; the first 31 bytes are used, so a 32-byte name cannot be joined.
+Network name, 1 to 32 bytes; any other length throws `\ValueError` (`must be 1 to 32 bytes long`).
 <!-- @endparam -->
 <!-- @param name="$password" type="?string" default="null" -->
-The passphrase. `null` or `''` joins an open network.
+The passphrase: 8 to 63 characters, or exactly 64 hex digits for a raw key. More than 64 bytes or a NUL byte throws `\ValueError`. `null` or `''` joins an open network.
 <!-- @endparam -->
-<!-- @param name="$timeout_ms" type="int" default="15000" -->
-How long to wait for an IP address. A value of 0 or less means 15000.
+<!-- @param name="$timeout_ms" type="int" default="30000" -->
+How long to wait for an IP address. A value of 0 or less means 30000. Before ext-wifi 1.0.2 the default was 15000.
 <!-- @endparam -->
 <!-- @endparams -->
 
@@ -81,9 +81,10 @@ The current signal of the joined access point in dBm, or `null` when not connect
 
 ## When the link drops
 
-When the access point goes away after a successful connect, the driver retries on its own while retries are
-left from the last `wifi_connect()` (10 per call, shared between the connect itself and later drops). After
-that the station stays down. Watch `wifi_connected()` and call `wifi_connect()` again:
+When the access point goes away after a successful connect, the driver reconnects on its own, up to 10 times;
+every time it gets an address the count starts again. The attempts come about every 2.5 s, so the driver
+gives up when the access point is gone for more than about 25 s; after that the station stays down.
+Watch `wifi_connected()` and call `wifi_connect()` again:
 
 <!-- @code-block language="php" label="reconnect in loop()" -->
 ```php

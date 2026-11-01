@@ -16,11 +16,11 @@ next: { label: 'How it runs', href: '../reference/how-it-runs.md' }
 
 <!-- @params -->
 <!-- @param name="$ssid" type="string" required -->
-Network name; the first 31 bytes are used.
+Network name, 1 to 32 bytes; any other length throws `\ValueError`.
 <!-- @endparam -->
 <!-- @param name="$password" type="?string" default="null" -->
-WPA2-PSK passphrase of 8 characters or more. `null`, `''` or anything shorter than 8 characters opens the
-network with no password.
+WPA2-PSK passphrase of 8 to 63 characters, or exactly 64 hex digits (more than 64 bytes or a NUL byte throws `\ValueError`). `null`, `''` or anything
+shorter than 8 characters opens the network with no password.
 <!-- @endparam -->
 <!-- @param name="$channel" type="int" default="1" -->
 Wi-Fi channel. While the station is connected the radio follows the station's channel.
@@ -60,8 +60,10 @@ How many stations are joined right now; `0` when the access point is down.
 
 <!-- @method name="wifi_available(): bool" returns="bool" -->
 
-Always `true`: the function exists only when ext-wifi is in the firmware. To write a script that also runs
-without ext-wifi, test `function_exists('wifi_available')` instead.
+`true` when the radio comes up. The first call brings up the Wi-Fi driver, without joining or opening a
+network; `false` means it could not (on a board whose Wi-Fi is an ESP32-C6 companion, the companion did not
+start). The function exists only when ext-wifi is in the firmware: to write a script that also runs without
+it, test `function_exists('wifi_available')` first.
 
 ## Example
 
