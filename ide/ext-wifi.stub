@@ -1,0 +1,385 @@
+<?php
+// php-baremetal/ext-wifi 1.1.0 — IDE helper, not loaded at runtime.
+
+namespace Baremetal\Wifi {
+    /**
+     * The station state returned by wifi_state(); only wifi_connect() leaves Idle.
+     */
+    enum State: string
+    {
+        /** No network asked for. */
+        case Idle = 'idle';
+
+        /** wifi_connect() is associating, also during the automatic retries. */
+        case Connecting = 'connecting';
+
+        /** Associated, no IP address yet. */
+        case Connected = 'connected';
+
+        /** Associated, with an IP address. */
+        case Online = 'online';
+    }
+
+    /**
+     * Why a connect gave up (ConnectFailed) or a connection ended (Disconnected), translated from the driver's
+     * reason code.
+     */
+    enum Reason: string
+    {
+        /**
+         * The access point refused the password before the connect ever had an IP address: two refusals in a
+         * row, or one with no retry left.
+         */
+        case WrongPassword = 'wrong-password';
+
+        /** No access point with that SSID in range, before the station associated. */
+        case NotFound = 'not-found';
+
+        /**
+         * A connection that was up went away (out of range, access point switched off), or an authentication
+         * failure on a reconnect after an IP address.
+         */
+        case Lost = 'lost';
+
+        /** The script closed it: wifi_disconnect(), or a new wifi_connect(). */
+        case ByUser = 'by-user';
+
+        /** Anything else, and a wait: true connect that timed out. */
+        case Other = 'other';
+    }
+
+    /**
+     * The base of the nine Wi-Fi event classes, emitted after wifi_events() and delivered in the event-driven
+     * runtime.
+     *
+     * For one change StateChanged comes first, then the event of what happened (wifi_disconnect() excepted:
+     * its Disconnected usually comes before the StateChanged to Idle).
+     */
+    abstract class Event extends \Baremetal\Event
+    {
+    }
+
+    /**
+     * wifi_state() changed (never for an equal state); each $previous is the $state of the one before.
+     */
+    final class StateChanged extends Event
+    {
+        /**
+         * The new station state.
+         */
+        public readonly State $state;
+
+        /**
+         * The state before the change.
+         */
+        public readonly State $previous;
+
+        /**
+         * The network asked for or in use, read when the event is delivered; null in Idle.
+         */
+        public readonly ?string $ssid;
+    }
+
+    /**
+     * The station has an IP address.
+     */
+    final class Online extends Event
+    {
+        /**
+         * The station's IPv4 address, e.g. 192.168.1.42.
+         */
+        public readonly string $ip;
+
+        /**
+         * The network joined, read when the event is delivered ('' after a wifi_disconnect() meanwhile).
+         */
+        public readonly string $ssid;
+    }
+
+    /**
+     * A connect gave up: the retries ran out, the password was refused twice in a row, or a wait: true connect
+     * timed out. A connect cancelled by another wifi_connect() never raises it.
+     */
+    final class ConnectFailed extends Event
+    {
+        /**
+         * Why it gave up.
+         */
+        public readonly Reason $reason;
+
+        /**
+         * The driver's raw reason code, clamped to -32767..32767; 0 when there is none.
+         */
+        public readonly int $code;
+
+        /**
+         * The network asked for, read when the event is delivered ('' after a wifi_disconnect() meanwhile).
+         */
+        public readonly string $ssid;
+    }
+
+    /**
+     * A connection that was associated ended, dropped or closed by the script.
+     */
+    final class Disconnected extends Event
+    {
+        /**
+         * Why it ended.
+         */
+        public readonly Reason $reason;
+
+        /**
+         * The driver's raw reason code, clamped to -32767..32767; 0 when there is none.
+         */
+        public readonly int $code;
+
+        /**
+         * Whether the driver reconnects by itself (the state goes back to Connecting).
+         */
+        public readonly bool $retrying;
+    }
+
+    /**
+     * A scan ended: a wifi_scan(wait: false), and also a waiting wifi_scan() (delivered after the call returns).
+     */
+    final class ScanDone extends Event
+    {
+        /**
+         * The networks as wifi_scan() returns them (ssid, bssid, rssi, channel, auth), read when the event is
+         * delivered; [] when the scan failed.
+         */
+        public readonly array $networks;
+    }
+
+    /**
+     * The access point is up; each wifi_ap_start() raises one, also when it replaces the settings of a running
+     * access point.
+     */
+    final class ApStarted extends Event
+    {
+        /**
+         * The access point's network name.
+         */
+        public readonly string $ssid;
+
+        /**
+         * The board's address on its own network, read when the event is delivered.
+         */
+        public readonly string $ip;
+    }
+
+    /**
+     * The access point went down (wifi_ap_stop()); reset a list of clients kept by the script here, since
+     * ClientLeft may or may not arrive for the stations the stop drops.
+     */
+    final class ApStopped extends Event
+    {
+        /**
+         * How many stations were joined before the stop (clamped to 255).
+         */
+        public readonly int $clients;
+    }
+
+    /**
+     * A station joined the access point.
+     */
+    final class ClientJoined extends Event
+    {
+        /**
+         * The station's MAC address, aa:bb:cc:dd:ee:ff.
+         */
+        public readonly string $mac;
+
+        /**
+         * How many stations are joined now (clamped to 255).
+         */
+        public readonly int $clients;
+    }
+
+    /**
+     * A station left the access point.
+     */
+    final class ClientLeft extends Event
+    {
+        /**
+         * The station's MAC address, aa:bb:cc:dd:ee:ff.
+         */
+        public readonly string $mac;
+
+        /**
+         * How many stations are joined now (clamped to 255).
+         */
+        public readonly int $clients;
+    }
+
+    /**
+     * The handle of the Wi-Fi event source, returned by wifi_events(): stop() ends the emission (the functions
+     * keep working), start() turns it on again, running() says whether events are emitted.
+     */
+    final class Events extends \Baremetal\Source
+    {
+    }
+}
+
+namespace {
+    /**
+     * Whether the radio comes up; the first call brings up the Wi-Fi driver without joining or opening a network.
+     *
+     * The function exists only when ext-wifi is in the firmware: test function_exists('wifi_available') in a
+     * script that also runs without it.
+     *
+     * @return bool True when the radio comes up.
+     */
+    function wifi_available(): bool {}
+
+    /**
+     * Scans every channel for networks (blocking up to 15 s), or starts a scan and returns at once.
+     *
+     * The scan turns the station role on if it was off; it is refused while the station is connecting. After
+     * wifi_events() it also raises ScanDone.
+     *
+     * @param bool $wait true waits for the scan and returns its list; false starts it and returns at once (the
+     *                   list comes in ScanDone).
+     * @return array|bool With $wait: up to 48 networks, each ['ssid' => string ('' if hidden), 'bssid' => string
+     *                    (lowercase MAC), 'rssi' => int (dBm), 'channel' => int, 'auth' => string (open, wep, wpa,
+     *                    wpa2, wpa/wpa2, wpa2-ent, wpa3, wpa2/wpa3, wapi or unknown)], or false when the scan could
+     *                    not start or did not finish within 15 s. Without: true when the scan started, false when
+     *                    it could not.
+     */
+    function wifi_scan(bool $wait = true): array|bool {}
+
+    /**
+     * Joins a network as a station and waits for an IP address, or starts joining and returns at once.
+     *
+     * A current association is dropped first, the strongest access point with that name is chosen, and a
+     * connect in progress is cancelled. On timeout the attempt is stopped. No Wi-Fi failure throws: it is
+     * reported in the return value (and, with the events, in ConnectFailed::$reason).
+     *
+     * @param string $ssid Network name, 1 to 32 bytes, no NUL byte.
+     * @param string|null $password The passphrase, 8 to 63 characters or exactly 64 hex digits (at most 64 bytes,
+     *                              no NUL byte); null or '' joins an open network. WPA2-PSK is the minimum.
+     * @param int $timeout_ms How long to wait for an IP address in milliseconds, with $wait true only; 0 or less
+     *                        means 30000.
+     * @param bool $wait true waits for the IP address; false starts the connect and returns (the outcome comes as
+     *                   Online or ConnectFailed).
+     * @param int $retries Automatic retries after a failed or dropped association, refilled at every IP address:
+     *                     0 never retries, -1 retries forever. Two password refusals in a row before the first IP
+     *                     address give up at once.
+     * @return bool With $wait: true once the board has an IP address, false on failure or timeout. Without: true
+     *              when the connect started, false when it could not.
+     * @throws \ValueError When $ssid is not 1 to 32 bytes or contains a NUL byte, $password is longer than 64
+     *                     bytes or contains a NUL byte, or "wifi_connect(): $retries must be -1 (forever) or more".
+     */
+    function wifi_connect(string $ssid, ?string $password = null, int $timeout_ms = 30000, bool $wait = true, int $retries = 10): bool {}
+
+    /**
+     * Leaves the network, or cancels a connect in progress, and stops retries; the state goes to Idle.
+     *
+     * The station role stays on. With the events, Disconnected (Reason::ByUser) comes when the station was
+     * associated.
+     *
+     * @return bool Always true.
+     */
+    function wifi_disconnect(): bool {}
+
+    /**
+     * Whether the station has an IP address; false as soon as the link drops.
+     *
+     * @return bool True while the station is online.
+     */
+    function wifi_connected(): bool {}
+
+    /**
+     * The station's IPv4 address.
+     *
+     * @return string|null The address, e.g. 192.168.1.42, or null when not connected.
+     */
+    function wifi_ip(): ?string {}
+
+    /**
+     * The current signal of the joined access point.
+     *
+     * @return int|null The signal in dBm, or null when not connected.
+     */
+    function wifi_rssi(): ?int {}
+
+    /**
+     * Opens the board's own network with a DHCP server, alone or next to a station connection.
+     *
+     * Calling it again replaces the settings; if the driver refuses the new ones, the running access point stays
+     * up with its previous settings and no event is raised. With the events every call that succeeds raises one
+     * ApStarted, also when it replaces the settings of a running access point. A start undone by a wifi_ap_stop()
+     * before the radio has finished starting raises neither ApStarted nor ApStopped (wifi_ap_active() is then
+     * false).
+     *
+     * @param string $ssid Network name, 1 to 32 bytes, no NUL byte.
+     * @param string|null $password WPA2-PSK passphrase of 8 to 63 characters or exactly 64 hex digits (at most 64
+     *                              bytes, no NUL byte); null, '' or anything shorter than 8 characters opens the
+     *                              network with no password.
+     * @param int $channel Wi-Fi channel; while the station is connected the radio follows the station's channel.
+     * @param int $max_conn How many stations may join at once.
+     * @return bool True when the network is up, false when the driver refused the settings (for example an
+     *              invalid channel).
+     * @throws \ValueError When $ssid is not 1 to 32 bytes or contains a NUL byte, or $password is longer than 64
+     *                     bytes or contains a NUL byte.
+     */
+    function wifi_ap_start(string $ssid, ?string $password = null, int $channel = 1, int $max_conn = 4): bool {}
+
+    /**
+     * Closes the access point; a station connection stays up, and with no role left the radio stops.
+     *
+     * With the events it raises ApStopped; with the access point already down it raises nothing.
+     *
+     * @return bool Always true.
+     */
+    function wifi_ap_stop(): bool {}
+
+    /**
+     * The board's address on its own network.
+     *
+     * @return string|null The address (192.168.4.1 by default), or null when the access point is not up.
+     */
+    function wifi_ap_ip(): ?string {}
+
+    /**
+     * How many stations are joined to the access point right now.
+     *
+     * @return int The count; 0 when the access point is down.
+     */
+    function wifi_ap_clients(): int {}
+
+    /**
+     * The station state, kept up to date in every runtime, with or without wifi_events().
+     *
+     * @return \Baremetal\Wifi\State Idle, Connecting, Connected or Online.
+     */
+    function wifi_state(): \Baremetal\Wifi\State {}
+
+    /**
+     * The network asked for or in use by the station.
+     *
+     * @return string|null The SSID, or null in Idle.
+     */
+    function wifi_ssid(): ?string {}
+
+    /**
+     * Whether the access point is up.
+     *
+     * @return bool True while the access point is up.
+     */
+    function wifi_ap_active(): bool {}
+
+    /**
+     * Registers the nine Wi-Fi event classes as sources of the event bus and turns their emission on; nothing
+     * is emitted before the first call.
+     *
+     * Every call returns a new handle on the same source; dropping a handle leaves it running. The nine
+     * classes take nine of the 32 event classes the sources of the bus can use.
+     *
+     * @return \Baremetal\Wifi\Events The handle of the source.
+     * @throws \Exception "wifi_events() is not available in the web-server runtime: event sources need the
+     *                    event-driven runtime", or "wifi_events(): unknown class '...' or too many sources" when
+     *                    the source table of the bus is full.
+     */
+    function wifi_events(): \Baremetal\Wifi\Events {}
+}

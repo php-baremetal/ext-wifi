@@ -2,6 +2,7 @@
 
 ## 1.1.0
 
+- Added: ide/ext-wifi.stub, the PHP declarations of the package for IDEs (conductor copies it into vendor/php-baremetal/ide-stubs/).
 - Added: Wi-Fi events on the event bus of ext-events, after `wifi_events()`, which returns a
   `Baremetal\Wifi\Events` (a `Baremetal\Source`: `stop()`, `start()`, `running()`). Nine `final` classes
   extending the abstract `Baremetal\Wifi\Event`: `StateChanged` (`$state`, `$previous`, `$ssid`), `Online`

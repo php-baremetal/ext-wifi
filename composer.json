@@ -15,5 +15,5 @@
     "php-baremetal/ext-events": "^1.1",
     "php-baremetal/events-hal": "^1.3"
   },
-  "extra": { "baremetal": { "module": "wifi", "priority": 100 } }
+  "extra": { "baremetal": { "module": "wifi", "priority": 100, "ide-stubs": ["ide/ext-wifi.stub"] } }
 }
