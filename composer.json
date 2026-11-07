@@ -11,7 +11,9 @@
   ],
   "require": {
     "php": ">=8.3",
-    "php-baremetal/wifi-hal": "^1.0"
+    "php-baremetal/wifi-hal": "^1.1",
+    "php-baremetal/ext-events": "^1.1",
+    "php-baremetal/events-hal": "^1.3"
   },
-  "extra": { "baremetal": { "module": "wifi" } }
+  "extra": { "baremetal": { "module": "wifi", "priority": 100 } }
 }

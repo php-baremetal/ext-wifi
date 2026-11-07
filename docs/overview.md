@@ -4,6 +4,7 @@ lede:    'Scan, join a network or open an access point from PHP. The firmware ne
 see_also:
   - { href: './usage/station.md', meta: 'PHP API' }
   - { href: './usage/access-point.md', meta: 'PHP API' }
+  - { href: './usage/events.md', meta: 'PHP API' }
   - { href: './reference/how-it-runs.md', meta: 'Reference' }
   - { href: 'package:php-baremetal/esp32-wifi-hal', meta: 'HAL', label: 'esp32-wifi-hal' }
   - { href: 'package:php-baremetal/ext-web', meta: 'Extension', label: 'ext-web' }
@@ -15,7 +16,9 @@ next: { label: 'Station', href: './usage/station.md' }
 
 ext-wifi gives the script control of the board's Wi-Fi radio. As a **station** it scans for networks and
 joins one, waiting until it has an IP address. As an **access point** it opens the board's own network, with
-a DHCP server, so a phone or laptop can join it directly. Both roles can run at the same time.
+a DHCP server, so a phone or laptop can join it directly. Both roles can run at the same time. In the
+`event-driven` runtime it also raises events for what happens on the radio: the station connects, drops or
+gives up, a scan ends, a station joins the access point.
 
 The SDK brings up the TCP/IP stack and the event loop on every board, but on a Wi-Fi board it never joins a
 network and never reads credentials: connecting is always a call in your script. Once connected, whatever
@@ -25,11 +28,15 @@ uses the network works over it, `ext-web` included.
 
 | Requires | Why |
 | --- | --- |
-| `php-baremetal/wifi-hal` (virtual) | The radio driver lifecycle: init, scan, station, access point. On ESP32 it is `php-baremetal/esp32-wifi-hal` (platform `esp32`, over `esp_wifi`, `esp_netif`, `esp_event`, `nvs_flash`), which also brings `php-baremetal/esp32-executor`. |
+| `php-baremetal/wifi-hal` (virtual) `^1.1` | The radio driver lifecycle: init, scan, station, access point, and the driver events. On ESP32 it is `php-baremetal/esp32-wifi-hal` (platform `esp32`, over `esp_wifi`, `esp_netif`, `esp_event`, `nvs_flash`), which also brings `php-baremetal/esp32-executor`. |
+| `php-baremetal/ext-events` `^1.1` | The event bus the Wi-Fi events travel on (`wifi_events()`). |
+| `php-baremetal/events-hal` (virtual) `^1.3` | The lock that guards the station state, which the driver events update from their own task. On ESP32 it is `php-baremetal/esp32-events-hal`, already brought by ext-events. |
 
 You never require the HAL yourself. Conductor reads the platform from `extra.baremetal.sdk` (`esp32@^2.0` gives
-`esp32`) and adds `php-baremetal/esp32-wifi-hal` while Composer resolves. The PHP module is `wifi`. ext-wifi
-does not need ext-events and works in every runtime.
+`esp32`) and adds `php-baremetal/esp32-wifi-hal` while Composer resolves. The PHP module is `wifi`. Since
+ext-wifi 1.1.0 it requires ext-events, which Composer installs with it. The functions work in every runtime;
+the events are delivered in the `event-driven` runtime (in `init-loop` nothing delivers them, and
+`wifi_events()` throws in `web-server`).
 
 ## Boards
 
@@ -133,29 +140,35 @@ function loop(int $tick): void
 
 | Function | Returns | Meaning |
 | --- | --- | --- |
-| `wifi_scan()` | `array` or `false` | Networks in range: `ssid`, `bssid`, `rssi`, `channel`, `auth`. |
-| `wifi_connect(string $ssid, ?string $password = null, int $timeout_ms = 30000)` | `bool` | Join a network and wait for an IP address. |
+| `wifi_scan(bool $wait = true)` | `array` or `false`; `bool` with `wait: false` | Networks in range: `ssid`, `bssid`, `rssi`, `channel`, `auth`; or start a scan and return. |
+| `wifi_connect(string $ssid, ?string $password = null, int $timeout_ms = 30000, bool $wait = true, int $retries = 10)` | `bool` | Join a network and wait for an IP address, or start joining and return. |
 | `wifi_disconnect()` | `bool` | Leave the network. |
 | `wifi_connected()` | `bool` | Whether the station has an IP address. |
+| `wifi_state()`, `wifi_ssid()` | `Baremetal\Wifi\State`, `?string` | Station state (`Idle`, `Connecting`, `Connected`, `Online`) and the network asked for or in use. |
 | `wifi_ip()`, `wifi_rssi()` | `?string`, `?int` | Station address and signal, `null` when not connected. |
 | `wifi_ap_start(string $ssid, ?string $password = null, int $channel = 1, int $max_conn = 4)` | `bool` | Open the board's own network. |
 | `wifi_ap_stop()` | `bool` | Close it. |
 | `wifi_ap_ip()`, `wifi_ap_clients()` | `?string`, `int` | Access point address and number of joined stations. |
+| `wifi_ap_active()` | `bool` | Whether the access point is up. |
+| `wifi_events()` | `Baremetal\Wifi\Events` | Turn on the [Wi-Fi events](./usage/events.md). |
 | `wifi_available()` | `bool` | Whether the radio comes up. |
 
-No function throws for a Wi-Fi failure: each reports it in its return value.
+No function throws for a Wi-Fi failure: each reports it in its return value (and, with the events, in
+`ConnectFailed::$reason` or `Disconnected::$reason`).
 
 ## Dependencies
 
 - Requires the virtual `php-baremetal/wifi-hal`, provided on ESP32 by
   [esp32-wifi-hal](package:php-baremetal/esp32-wifi-hal), which runs every driver call on
   [esp32-executor](package:php-baremetal/esp32-executor).
+- Requires [ext-events](package:php-baremetal/ext-events) for its events.
 - Gives [ext-web](package:php-baremetal/ext-web) its network interface on Wi-Fi boards.
 
 ## Notes
 
 - `wifi_scan()` and `wifi_connect()` block the script while they wait (up to 15 s for a scan, `$timeout_ms`
-  for a connect). In the `event-driven` runtime nothing else is delivered meanwhile.
+  for a connect). In the `event-driven` runtime nothing else is delivered meanwhile: there, use `wait: false`
+  and the [events](./usage/events.md).
 - With the `web-server` runtime on a Wi-Fi board, connect in the `init` script (the runtime option `init`),
   which runs once before the server starts.
 - The first Wi-Fi call initialises the radio and the `nvs` flash partition. See

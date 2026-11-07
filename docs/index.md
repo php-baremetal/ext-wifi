@@ -5,6 +5,7 @@
 - PHP API
   - [Station](./usage/station.md)
   - [Access point](./usage/access-point.md)
+  - [Events](./usage/events.md)
 - Reference
   - [How it runs](./reference/how-it-runs.md)
 - Recipes

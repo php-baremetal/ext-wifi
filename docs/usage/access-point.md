@@ -3,9 +3,10 @@ eyebrow: 'ext-wifi · PHP API'
 lede:    'Turn the board into a Wi-Fi access point with a DHCP server, alone or next to a station connection.'
 see_also:
   - { href: './station.md', meta: 'PHP API' }
+  - { href: './events.md', meta: 'PHP API' }
   - { href: '../recipes/access-point-fallback.md', meta: 'Recipe' }
 prev: { label: 'Station', href: './station.md' }
-next: { label: 'How it runs', href: '../reference/how-it-runs.md' }
+next: { label: 'Events', href: './events.md' }
 ---
 
 # Access point
@@ -31,7 +32,13 @@ How many stations may join at once.
 <!-- @endparams -->
 
 Returns `true` when the network is up, `false` when the driver refused the settings (for example an invalid
-channel). Calling it again replaces the settings. With the station role also on, both run together.
+channel). Calling it again replaces the settings; if the driver refuses the new ones, the running access point
+stays up with its previous settings and no event is raised. With the station role also on, both run together: starting
+or stopping the access point never touches the station, and switching the station on never stops the access
+point (the driver's internal restart raises no event). With [wifi_events()](./events.md) every call raises one
+`ApStarted` (`$ssid`, `$ip`), also when it replaces the settings of an access point already up. A start undone by
+a `wifi_ap_stop()` before the radio has finished starting raises neither `ApStarted` nor `ApStopped`;
+`wifi_ap_active()` is `false` afterwards.
 
 <!-- @callout variant="danger" title="A short password opens the network" -->
 A password under 8 characters is not an error: the access point starts **open**. Check the length yourself
@@ -43,7 +50,10 @@ when the password comes from user input.
 <!-- @method name="wifi_ap_stop(): bool" returns="bool" -->
 
 Closes the access point and returns `true`. A station connection stays up; with no role left, the radio
-stops.
+stops. With the events it raises `ApStopped`, whose `$clients` says how many stations were joined before the
+stop. `ClientLeft` may or may not arrive for the stations the stop drops (on ESP32 it usually comes first,
+with code 2): reset the script's list of clients on `ApStopped`. With the access point already down it
+returns `true` and raises nothing.
 
 ## wifi_ap_ip() and wifi_ap_clients()
 
@@ -54,7 +64,15 @@ it is `192.168.4.1`, and joined devices get their addresses from the board's DHC
 
 <!-- @method name="wifi_ap_clients(): int" returns="int" -->
 
-How many stations are joined right now; `0` when the access point is down.
+How many stations are joined right now; `0` when the access point is down. With the events, every station
+that joins or leaves raises `ClientJoined` or `ClientLeft`, with its MAC address (`$mac`) and the count after
+the change (`$clients`).
+
+## wifi_ap_active()
+
+<!-- @method name="wifi_ap_active(): bool" returns="bool" -->
+
+`true` while the access point is up. Since ext-wifi 1.1.0.
 
 ## wifi_available()
 

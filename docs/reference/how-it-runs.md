@@ -5,7 +5,7 @@ see_also:
   - { href: '../usage/station.md', meta: 'PHP API' }
   - { href: 'package:php-baremetal/esp32-wifi-hal', meta: 'HAL', label: 'esp32-wifi-hal' }
   - { href: 'package:php-baremetal/esp32-executor', meta: 'Library', label: 'esp32-executor' }
-prev: { label: 'Access point', href: '../usage/access-point.md' }
+prev: { label: 'Events', href: '../usage/events.md' }
 next: { label: 'Connect with credentials from .env', href: '../recipes/connect-as-station.md' }
 ---
 
@@ -23,18 +23,27 @@ task waits for the result.
 | --- | --- |
 | Driver calls: init, mode changes, scan start and fetch, connect, disconnect, access point, signal and client queries | executor task |
 | Waiting for the scan to finish, and for the IP address after a connect | PHP task (blocked) |
-| Driver events: scan done, disconnected (and the automatic retry), got IP | ESP-IDF default event loop task; never PHP |
+| Driver events: scan done, connected, disconnected (and the automatic retry), got and lost IP, access point started, stopped, station joined and left | ESP-IDF default event loop task; never PHP |
+| ext-wifi's state and its events (`wifi_events()`): updated, and the event posted to the bus, on the task the driver event comes from | ESP-IDF default event loop task, or the PHP task for a change made by a PHP function |
+| The event objects, filled (SSIDs, access point IP, scan list read from the driver) and delivered to the listeners | PHP task, in the `event-driven` reactor |
+
+A state change and the posting of its `StateChanged` happen together under one task-level lock of ext-wifi,
+taken by the driver's event task and by the PHP functions that move the state (`wifi_connect()`,
+`wifi_disconnect()`), so the `StateChanged` events always reach the queue in the order of the changes. The
+lock is a queue with no priority inheritance; the driver's event task waits for it only while another task
+is changing the state, briefly.
 
 If the executor's queue stays full for one second, the call fails and the function reports it as `false`
 (or `null`, `0`).
 
 ## Blocking
 
-`wifi_scan()` waits up to 15 s, `wifi_connect()` up to `$timeout_ms`. The script is blocked meanwhile:
+`wifi_scan()` waits up to 15 s, `wifi_connect()` up to `$timeout_ms`; with `wait: false` both return at once
+and the outcome comes as an [event](../usage/events.md). The script is blocked meanwhile:
 
 - `init-loop`: the next `loop()` runs after the call returns;
-- `event-driven`: no event is delivered until the call returns; HTTP requests from `ext-web` queue up and may
-  hit their own deadline;
+- `event-driven`: no event is delivered until the call returns (the Wi-Fi events raised meanwhile wait in the
+  queue); HTTP requests from `ext-web` queue up and may hit their own deadline;
 - `web-server`: connect in the `init` script, before the server starts.
 
 The other functions return within milliseconds.
@@ -93,7 +102,11 @@ verified on hardware.
 | Networks returned by one scan | 48 | ext-wifi |
 | Scan timeout | 15 s | esp32-wifi-hal |
 | Default connect timeout | 30000 ms | ext-wifi |
-| Retries of a dropped association | 10 in a row, about 2.5 s apart, refilled at every address the station gets; none after `wifi_disconnect()` or a connect timeout | esp32-wifi-hal |
+| Retries of a dropped association | `$retries` of `wifi_connect()` (10 by default, `-1` forever), about 2.5 s apart, refilled at every address the station gets; none after `wifi_disconnect()` or a connect timeout | ext-wifi, esp32-wifi-hal |
+| Event classes | 9 (`wifi_events()`), out of the 32 event classes the sources of the bus can use | ext-wifi, ext-events |
+| Data carried by an event | at most 16 bytes in the event slot (the states, reason and code, an IP, a MAC and a count); the SSIDs, the access point IP and the scan list are read when the event is delivered | ext-events |
+| `$code` of `ConnectFailed` and `Disconnected` | the driver's code, clamped to -32767..32767 | ext-wifi |
+| `$clients` of the access point events | clamped to 255 | ext-wifi |
 | SSID | 1 to 32 bytes, with no NUL byte, else `\ValueError` | ext-wifi |
 | Password | at most 64 bytes, with no NUL byte, else `\ValueError`; 8 to 63 characters, or exactly 64 hex digits | ext-wifi |
 | Access point password | 8 characters minimum, else the network is open | esp32-wifi-hal |
